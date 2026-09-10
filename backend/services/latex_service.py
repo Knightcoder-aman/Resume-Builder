@@ -180,10 +180,10 @@ def render_skills(skills: dict) -> str:
 
     latex = r"%-----------TECHNICAL SKILLS-----------" + "\n"
     latex += r"\section{TECHNICAL SKILLS}" + "\n"
-    latex += r" \begin{itemize}[leftmargin=0.15in, label=\small$\bullet$]" + "\n"
+    latex += r" \begin{itemize}[leftmargin=*, labelindent=0.15in, label=\small$\bullet$]" + "\n"
     for label, val in skill_lines:
         clean_label = label.rstrip(": ")
-        latex += f"    \\small{{\\item{{\\textbf{{{escape_latex(clean_label)}:}} {{{escape_latex(val)}}} \\vspace{{-2pt}}}}}}\n"
+        latex += f"    \\item \\small{{\\textbf{{{escape_latex(clean_label)}:}} {{{escape_latex(val)}}} \\vspace{{-2pt}}}}\n"
     latex += r" \end{itemize}" + "\n\n"
     return latex
 
@@ -294,7 +294,7 @@ def generate_latex(resume_data: dict) -> str:
 
 \newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.0in, label={}]}
 \newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
-\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=0.15in, label=\small$\bullet$]}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=*, labelindent=0.15in, label=\small$\bullet$]}
 \newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
 
 \begin{document}
