@@ -62,10 +62,17 @@ class Project(BaseModel):
 
 class Skills(BaseModel):
     languages: str = ""
+    techStack: str = ""
     frameworks: str = ""
+    ai_ml: str = ""
+    proficiencies: str = ""
     tools: str = ""
     databases: str = ""
     softSkills: str = ""
+    custom: List[Dict[str, str]] = []
+
+    class Config:
+        extra = "allow"
 
 
 class ResumeData(BaseModel):
@@ -76,6 +83,8 @@ class ResumeData(BaseModel):
     achievements: List[str] = []
     skills: Skills = Skills()
     extracurricular: List[str] = []
+    section_order: Optional[List[str]] = None
+    section_visibility: Optional[Dict[str, bool]] = None
 
 
 class GenerateLatexRequest(BaseModel):
