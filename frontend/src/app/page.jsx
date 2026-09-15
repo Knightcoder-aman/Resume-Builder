@@ -1,22 +1,26 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Header from "@/components/Header";
 import Sidebar, { DEFAULT_SECTION_ORDER, SECTION_METADATA } from "@/components/Sidebar";
 import PromptMode from "@/components/PromptMode";
 import ApiKeyModal from "@/components/ApiKeyModal";
+import CustomSectionModal from "@/components/CustomSectionModal";
 import PersonalDetailsForm from "@/components/forms/PersonalDetailsForm";
+import SummaryForm from "@/components/forms/SummaryForm";
 import EducationForm from "@/components/forms/EducationForm";
 import ExperienceForm from "@/components/forms/ExperienceForm";
 import ProjectsForm from "@/components/forms/ProjectsForm";
 import AchievementsForm from "@/components/forms/AchievementsForm";
 import SkillsForm from "@/components/forms/SkillsForm";
 import ExtraCurricularForm from "@/components/forms/ExtraCurricularForm";
+import CustomSectionForm from "@/components/forms/CustomSectionForm";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const INITIAL_DATA = {
   personal: { name: "", email: "", phone: "", address: "", pincode: "", linkedin: "", github: "", portfolio: "" },
+  summary: "",
   education: [{ degree: "", university: "", location: "", startDate: "", endDate: "", gpa: "", coursework: "" }],
   experience: [{ company: "", role: "", location: "", startDate: "", endDate: "", current: false, bullets: [""] }],
   projects: [{ name: "", description: "", technologies: "", link: "", bullets: [""] }],
@@ -33,9 +37,11 @@ const INITIAL_DATA = {
     custom: [],
   },
   extracurricular: [""],
+  custom_sections: {},
 };
 
 const DEFAULT_VISIBILITY = {
+  summary: true,
   education: true,
   experience: true,
   projects: true,
@@ -46,28 +52,51 @@ const DEFAULT_VISIBILITY = {
 
 export default function Home() {
   const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState("light");
   const [mode, setMode] = useState("form");
   const [activeTab, setActiveTab] = useState("personal");
   const [data, setData] = useState(INITIAL_DATA);
   const [savedTabs, setSavedTabs] = useState({});
   const [sectionOrder, setSectionOrder] = useState(DEFAULT_SECTION_ORDER);
   const [sectionVisibility, setSectionVisibility] = useState(DEFAULT_VISIBILITY);
+  const [customSections, setCustomSections] = useState({});
+  const [showAddCustomModal, setShowAddCustomModal] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // Load from localStorage on mount + mark as mounted
+  // Load from localStorage on mount
   useEffect(() => {
+    // Theme setup
+    const storedTheme = localStorage.getItem("resume_theme") || "light";
+    setTheme(storedTheme);
+    document.documentElement.setAttribute("data-theme", storedTheme);
+
     const storedKey = localStorage.getItem("gemini_api_key");
     if (storedKey) setApiKey(storedKey);
 
     const storedData = localStorage.getItem("resume_data");
     if (storedData) {
       try {
-        setData(JSON.parse(storedData));
+        const parsed = JSON.parse(storedData);
+        setData((prev) => ({
+          ...prev,
+          ...parsed,
+          summary: parsed.summary || "",
+          custom_sections: parsed.custom_sections || {},
+        }));
       } catch (e) {
-        // Invalid stored data, use defaults
+        // use defaults
+      }
+    }
+
+    const storedCustom = localStorage.getItem("resume_custom_sections");
+    if (storedCustom) {
+      try {
+        setCustomSections(JSON.parse(storedCustom));
+      } catch (e) {
+        // use defaults
       }
     }
 
@@ -76,7 +105,7 @@ export default function Home() {
       try {
         setSavedTabs(JSON.parse(storedSaved));
       } catch (e) {
-        // Invalid stored data
+        // use defaults
       }
     }
 
@@ -85,14 +114,14 @@ export default function Home() {
       try {
         const parsed = JSON.parse(storedOrder);
         if (Array.isArray(parsed)) {
-          const valid = parsed.filter((id) => DEFAULT_SECTION_ORDER.includes(id));
-          DEFAULT_SECTION_ORDER.forEach((id) => {
-            if (!valid.includes(id)) valid.push(id);
-          });
-          setSectionOrder(valid);
+          // Ensure summary is in order
+          if (!parsed.includes("summary")) {
+            parsed.unshift("summary");
+          }
+          setSectionOrder(parsed);
         }
       } catch (e) {
-        // Invalid stored order
+        // use defaults
       }
     }
 
@@ -104,12 +133,19 @@ export default function Home() {
           setSectionVisibility((prev) => ({ ...prev, ...parsed }));
         }
       } catch (e) {
-        // Invalid stored visibility
+        // use defaults
       }
     }
 
     setMounted(true);
   }, []);
+
+  const handleToggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    document.documentElement.setAttribute("data-theme", nextTheme);
+    localStorage.setItem("resume_theme", nextTheme);
+  };
 
   const showToast = useCallback((message, type = "success") => {
     setToast({ message, type });
@@ -128,7 +164,8 @@ export default function Home() {
     setSavedTabs(newSaved);
     localStorage.setItem("resume_data", JSON.stringify(data));
     localStorage.setItem("resume_saved_tabs", JSON.stringify(newSaved));
-    showToast(`${tabId.charAt(0).toUpperCase() + tabId.slice(1)} saved!`);
+    const label = SECTION_METADATA[tabId]?.label || customSections[tabId]?.title || tabId;
+    showToast(`${label} saved!`);
   };
 
   const handleReorderSections = useCallback((draggedId, targetId, position = "after") => {
@@ -162,15 +199,93 @@ export default function Home() {
       const currentlyEnabled = prev[id] !== false;
       const updated = { ...prev, [id]: !currentlyEnabled };
       localStorage.setItem("resume_section_visibility", JSON.stringify(updated));
-      const label = SECTION_METADATA[id]?.label || id;
+      const label = SECTION_METADATA[id]?.label || customSections[id]?.title || id;
       showToast(
         !currentlyEnabled
           ? `${label} enabled in resume! ✨`
-          : `${label} disabled (hidden from resume)`
+          : `${label} hidden from resume`
       );
       return updated;
     });
-  }, [showToast]);
+  }, [customSections, showToast]);
+
+  const handleAddCustomSection = (title, icon) => {
+    const sectionId = `custom_${Date.now()}`;
+    const newConfig = { id: sectionId, title, icon };
+
+    const updatedCustom = { ...customSections, [sectionId]: newConfig };
+    setCustomSections(updatedCustom);
+    localStorage.setItem("resume_custom_sections", JSON.stringify(updatedCustom));
+
+    const updatedOrder = [...sectionOrder, sectionId];
+    setSectionOrder(updatedOrder);
+    localStorage.setItem("resume_section_order", JSON.stringify(updatedOrder));
+
+    const updatedVis = { ...sectionVisibility, [sectionId]: true };
+    setSectionVisibility(updatedVis);
+    localStorage.setItem("resume_section_visibility", JSON.stringify(updatedVis));
+
+    // Initialize custom section data
+    setData((prev) => {
+      const next = {
+        ...prev,
+        custom_sections: {
+          ...(prev.custom_sections || {}),
+          [sectionId]: {
+            title,
+            icon,
+            items: [
+              {
+                title: "",
+                subtitle: "",
+                date: "",
+                location: "",
+                bullets: [""],
+              },
+            ],
+          },
+        },
+      };
+      localStorage.setItem("resume_data", JSON.stringify(next));
+      return next;
+    });
+
+    setActiveTab(sectionId);
+    showToast(`Added "${title}" custom section! ✨`);
+  };
+
+  const handleDeleteCustomSection = (sectionId) => {
+    const label = customSections[sectionId]?.title || "Custom section";
+    if (!confirm(`Are you sure you want to delete the "${label}" section?`)) return;
+
+    const updatedCustom = { ...customSections };
+    delete updatedCustom[sectionId];
+    setCustomSections(updatedCustom);
+    localStorage.setItem("resume_custom_sections", JSON.stringify(updatedCustom));
+
+    const updatedOrder = sectionOrder.filter((id) => id !== sectionId);
+    setSectionOrder(updatedOrder);
+    localStorage.setItem("resume_section_order", JSON.stringify(updatedOrder));
+
+    const updatedVis = { ...sectionVisibility };
+    delete updatedVis[sectionId];
+    setSectionVisibility(updatedVis);
+    localStorage.setItem("resume_section_visibility", JSON.stringify(updatedVis));
+
+    setData((prev) => {
+      const nextCust = { ...(prev.custom_sections || {}) };
+      delete nextCust[sectionId];
+      const next = { ...prev, custom_sections: nextCust };
+      localStorage.setItem("resume_data", JSON.stringify(next));
+      return next;
+    });
+
+    if (activeTab === sectionId) {
+      setActiveTab("personal");
+    }
+
+    showToast(`Deleted "${label}" section`);
+  };
 
   const ensureApiKey = () => {
     if (!apiKey) {
@@ -276,9 +391,8 @@ export default function Home() {
       const result = await response.json();
       if (result.resume_data) {
         setData(result.resume_data);
-        // Mark all tabs as saved
         const allSaved = {};
-        ["personal", "education", "experience", "projects", "achievements", "skills", "extracurricular"].forEach(
+        ["personal", "summary", "education", "experience", "projects", "achievements", "skills", "extracurricular"].forEach(
           (tab) => (allSaved[tab] = true)
         );
         setSavedTabs(allSaved);
@@ -305,6 +419,7 @@ export default function Home() {
             ...data,
             section_order: sectionOrder,
             section_visibility: sectionVisibility,
+            custom_sections: data.custom_sections || {},
           },
         }),
       });
@@ -317,7 +432,7 @@ export default function Home() {
       const result = await response.json();
       const latex = result.latex;
 
-      // Open in Overleaf using their "open in overleaf" API
+      // Open in Overleaf
       const form = document.createElement("form");
       form.method = "POST";
       form.action = "https://www.overleaf.com/docs";
@@ -347,10 +462,84 @@ export default function Home() {
     }
   };
 
+  // Completeness Calculation
+  const completeness = useMemo(() => {
+    const isPersonalDone = Boolean(data.personal?.name && data.personal?.email);
+    const isSummaryDone = Boolean(data.summary && data.summary.trim().length > 0);
+    const isEduDone = Boolean(data.education?.some((e) => e.degree || e.university));
+    const isExpDone = Boolean(data.experience?.some((e) => e.company || e.role));
+    const isProjDone = Boolean(data.projects?.some((p) => p.name));
+    const isSkillsDone = Boolean(
+      data.skills?.languages ||
+      data.skills?.techStack ||
+      data.skills?.frameworks ||
+      data.skills?.tools
+    );
+    const isAchDone = Boolean(data.achievements?.some((a) => a.trim()));
+    const isExtraDone = Boolean(data.extracurricular?.some((e) => e.trim()));
+
+    const statusMap = {
+      personal: isPersonalDone,
+      summary: isSummaryDone,
+      education: isEduDone,
+      experience: isExpDone,
+      projects: isProjDone,
+      skills: isSkillsDone,
+      achievements: isAchDone,
+      extracurricular: isExtraDone,
+    };
+
+    // Check custom sections
+    Object.keys(customSections).forEach((id) => {
+      const items = data.custom_sections?.[id]?.items || [];
+      statusMap[id] = items.some(
+        (it) => it.title || it.subtitle || (it.bullets && it.bullets.some((b) => b.trim()))
+      );
+    });
+
+    // Count enabled sections
+    const enabledSections = ["personal", ...sectionOrder.filter((id) => sectionVisibility[id] !== false)];
+    const totalCount = enabledSections.length;
+    const completedCount = enabledSections.filter((id) => statusMap[id]).length;
+    const percentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+    return { percentage, completedCount, totalCount };
+  }, [data, customSections, sectionOrder, sectionVisibility]);
+
+  // Breadcrumb
+  const activeBreadcrumb = useMemo(() => {
+    if (activeTab === "personal") return "General > Personal Details";
+    const tabMeta = SECTION_METADATA[activeTab];
+    if (tabMeta) return `Resume Sections > ${tabMeta.label}`;
+    const custom = customSections[activeTab];
+    if (custom) return `Resume Sections > ${custom.title}`;
+    return "Resume Sections";
+  }, [activeTab, customSections]);
+
+  const userInitial = useMemo(() => {
+    const name = data.personal?.name?.trim();
+    return name ? name.charAt(0).toUpperCase() : "A";
+  }, [data.personal?.name]);
+
   const renderForm = () => {
+    if (customSections[activeTab]) {
+      return (
+        <CustomSectionForm
+          sectionId={activeTab}
+          sectionConfig={customSections[activeTab]}
+          data={data}
+          setData={setData}
+          onSave={handleSaveTab}
+          onDeleteSection={handleDeleteCustomSection}
+        />
+      );
+    }
+
     switch (activeTab) {
       case "personal":
         return <PersonalDetailsForm data={data} setData={setData} onSave={handleSaveTab} />;
+      case "summary":
+        return <SummaryForm data={data} setData={setData} onSave={handleSaveTab} />;
       case "education":
         return <EducationForm data={data} setData={setData} onSave={handleSaveTab} />;
       case "experience":
@@ -360,7 +549,7 @@ export default function Home() {
       case "achievements":
         return <AchievementsForm data={data} setData={setData} onSave={handleSaveTab} />;
       case "skills":
-        return <SkillsForm data={data} setData={setData} onSave={handleSaveTab} onAISuggest={handleAISuggestSkills} />;
+        return <SkillsForm data={data} setData={setData} onSave={handleSaveTab} />;
       case "extracurricular":
         return <ExtraCurricularForm data={data} setData={setData} onSave={handleSaveTab} />;
       default:
@@ -380,6 +569,10 @@ export default function Home() {
         setMode={setMode}
         onBuildResume={handleBuildResume}
         loading={loading}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+        breadcrumb={activeBreadcrumb}
+        userInitial={userInitial}
       />
       <div className="app-layout">
         {mode === "form" && (
@@ -389,9 +582,13 @@ export default function Home() {
             savedTabs={savedTabs}
             sectionOrder={sectionOrder}
             sectionVisibility={sectionVisibility}
+            customSections={customSections}
+            completeness={completeness}
             onReorderSections={handleReorderSections}
             onMoveSection={handleMoveSection}
             onToggleSection={handleToggleSection}
+            onOpenAddCustomModal={() => setShowAddCustomModal(true)}
+            onDeleteCustomSection={handleDeleteCustomSection}
           />
         )}
         <main className="main-content">
@@ -400,8 +597,10 @@ export default function Home() {
               <div className="alert-content">
                 <span className="alert-icon">⚠️</span>
                 <div>
-                  <strong>{SECTION_METADATA[activeTab]?.label || "This section"} is currently disabled</strong>
-                  <p>It will not appear in your generated resume until you re-enable it.</p>
+                  <strong>
+                    {SECTION_METADATA[activeTab]?.label || customSections[activeTab]?.title || "This section"} is currently hidden
+                  </strong>
+                  <p>It will not appear in your generated resume until you enable it.</p>
                 </div>
               </div>
               <button
@@ -421,6 +620,12 @@ export default function Home() {
           )}
         </main>
       </div>
+
+      <CustomSectionModal
+        isOpen={showAddCustomModal}
+        onClose={() => setShowAddCustomModal(false)}
+        onAddSection={handleAddCustomSection}
+      />
 
       {showApiKeyModal && (
         <ApiKeyModal

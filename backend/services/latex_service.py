@@ -39,6 +39,15 @@ def format_date(date_str: str) -> str:
     return date_str
 
 
+def render_summary(summary: str) -> str:
+    if not summary or not summary.strip():
+        return ""
+    latex = r"%-----------SUMMARY-----------" + "\n"
+    latex += r"\section{SUMMARY}" + "\n"
+    latex += f"  \\small{{{escape_latex(summary.strip())}}}\n\n"
+    return latex
+
+
 def render_education(education: list) -> str:
     if not any(e.get("degree") or e.get("university") for e in education):
         return ""
@@ -218,6 +227,54 @@ def render_extracurricular(extracurricular: list) -> str:
     return latex
 
 
+def render_custom_section(section_data: dict) -> str:
+    if not section_data or not isinstance(section_data, dict):
+        return ""
+    title = section_data.get("title", "ADDITIONAL SECTION").strip().upper()
+    items = section_data.get("items", [])
+    description = section_data.get("description", "").strip()
+
+    if not items and not description:
+        return ""
+
+    latex = f"%-----------{title}-----------" + "\n"
+    latex += f"\\section{{{escape_latex(title)}}}\n"
+
+    if description and not items:
+        latex += f"  \\small{{{escape_latex(description)}}}\n\n"
+        return latex
+
+    latex += r"  \resumeSubHeadingListStart" + "\n"
+    for item in items:
+        if not isinstance(item, dict):
+            if str(item).strip():
+                latex += f"    \\resumeItem{{{escape_latex(str(item))}}}\n"
+            continue
+
+        item_title = escape_latex(item.get("title", ""))
+        item_date = escape_latex(item.get("date", ""))
+        item_sub = escape_latex(item.get("subtitle", ""))
+        item_loc = escape_latex(item.get("location", ""))
+        bullets = [b for b in item.get("bullets", []) if b.strip()]
+        desc = item.get("description", "").strip()
+
+        if item_title or item_sub or item_date or item_loc:
+            latex += f"    \\resumeSubheading\n      {{{item_title}}}{{{item_date}}}\n      {{{item_sub}}}{{{item_loc}}}\n"
+
+        if bullets:
+            latex += r"      \resumeItemListStart" + "\n"
+            for b in bullets:
+                latex += f"        \\resumeItem{{{escape_latex(b)}}}\n"
+            latex += r"      \resumeItemListEnd" + "\n"
+        elif desc:
+            latex += r"      \resumeItemListStart" + "\n"
+            latex += f"        \\resumeItem{{{escape_latex(desc)}}}\n"
+            latex += r"      \resumeItemListEnd" + "\n"
+
+    latex += r"  \resumeSubHeadingListEnd" + "\n\n"
+    return latex
+
+
 def generate_latex(resume_data: dict) -> str:
     """Generate ATS-friendly LaTeX resume matching the Jake's Resume template style."""
     personal = resume_data.get("personal", {})
@@ -333,8 +390,11 @@ def generate_latex(resume_data: dict) -> str:
 
 """
 
+    custom_sections = resume_data.get("custom_sections", {})
+
     # Section renderers mapping
     section_renderers = {
+        "summary": lambda: render_summary(resume_data.get("summary", "")),
         "education": lambda: render_education(resume_data.get("education", [])),
         "experience": lambda: render_experience(resume_data.get("experience", [])),
         "projects": lambda: render_projects(resume_data.get("projects", [])),
@@ -344,7 +404,12 @@ def generate_latex(resume_data: dict) -> str:
         "extra_curricular": lambda: render_extracurricular(resume_data.get("extracurricular", [])),
     }
 
-    default_order = ["education", "experience", "projects", "skills", "achievements", "extracurricular"]
+    # Register custom section renderers
+    if isinstance(custom_sections, dict):
+        for c_id, c_data in custom_sections.items():
+            section_renderers[c_id] = (lambda data=c_data: render_custom_section(data))
+
+    default_order = ["summary", "education", "experience", "projects", "skills", "achievements", "extracurricular"]
     raw_order = resume_data.get("section_order")
     if raw_order and isinstance(raw_order, list):
         section_order = [s for s in raw_order if s in section_renderers]
@@ -352,8 +417,13 @@ def generate_latex(resume_data: dict) -> str:
         for s in default_order:
             if s not in section_order:
                 section_order.append(s)
+        # append any custom section ids not in section_order
+        if isinstance(custom_sections, dict):
+            for c_id in custom_sections.keys():
+                if c_id not in section_order:
+                    section_order.append(c_id)
     else:
-        section_order = default_order
+        section_order = default_order + (list(custom_sections.keys()) if isinstance(custom_sections, dict) else [])
 
     section_visibility = resume_data.get("section_visibility") or {}
     disabled_sections = set(resume_data.get("disabled_sections") or [])

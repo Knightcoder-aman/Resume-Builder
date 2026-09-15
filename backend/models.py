@@ -77,12 +77,14 @@ class Skills(BaseModel):
 
 class ResumeData(BaseModel):
     personal: PersonalDetails = PersonalDetails()
+    summary: str = ""
     education: List[Education] = []
     experience: List[Experience] = []
     projects: List[Project] = []
     achievements: List[str] = []
     skills: Skills = Skills()
     extracurricular: List[str] = []
+    custom_sections: Dict[str, Any] = {}
     section_order: Optional[List[str]] = None
     section_visibility: Optional[Dict[str, bool]] = None
 
